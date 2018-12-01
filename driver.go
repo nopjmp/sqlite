@@ -53,7 +53,7 @@ func errorString(code ErrNum) string {
 }
 
 var (
-	busyTimeout = 30000
+	busyTimeout = time.Duration(30) * time.Second
 	busyDelays  = []int{1, 2, 5, 10, 15, 20, 25, 25, 25, 50, 50, 100}
 	busyTotals  = []int{0, 1, 3, 8, 18, 33, 53, 78, 103, 128, 178, 228}
 	busySize    = len(busyDelays)
@@ -66,14 +66,16 @@ var (
 func busyHandler(ptr unsafe.Pointer, c C.int) C.int {
 	count := int(c)
 
-	var delay, prior int
+	var delayInt, priorInt int
 	if count < busySize {
-		delay = busyDelays[count]
-		prior = busyTotals[count]
+		delayInt = busyDelays[count]
+		priorInt = busyTotals[count]
 	} else {
-		delay = busyDelays[busySize-1]
-		prior = busyTotals[busySize-1] + delay*(count-busySize)
+		delayInt = busyDelays[busySize-1]
+		priorInt = busyTotals[busySize-1] + delayInt*(count-busySize)
 	}
+	delay := time.Duration(delayInt) * time.Microsecond
+	prior := time.Duration(priorInt) * time.Microsecond
 
 	if prior+delay > busyTimeout {
 		delay = busyTimeout - prior
@@ -81,8 +83,9 @@ func busyHandler(ptr unsafe.Pointer, c C.int) C.int {
 			return 0
 		}
 	}
+
 	// yield to other goroutines
-	time.Sleep(time.Duration(delay) * time.Millisecond)
+	time.Sleep(delay)
 	return 1
 }
 

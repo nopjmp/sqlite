@@ -7,7 +7,9 @@
 package sqlite
 
 /*
-#cgo LDFLAGS: -lsqlite3
+#cgo linux LDFLAGS: -lsqlite3
+#cgo darwin LDFLAGS: -L/usr/local/opt/sqlite/lib -lsqlite3
+#cgo darwin CFLAGS: -I/usr/local/opt/sqlite/include
 
 #include <sqlite3.h>
 #include <stdlib.h>
@@ -258,7 +260,6 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	// context cancellation support
 	done := make(chan bool)
-	defer close(done)
 	go func(db *C.sqlite3) {
 		select {
 		case <-done:
@@ -311,8 +312,6 @@ type stmt struct {
 	args     string
 	closed   atomicBool
 	rows     atomicBool
-	colnames []string
-	coltypes []string
 }
 
 func (s *stmt) Close() error {
@@ -422,7 +421,6 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 
 	// context cancellation support
 	done := make(chan bool)
-	defer close(done)
 	go func(db *C.sqlite3) {
 		select {
 		case <-done:
@@ -470,17 +468,8 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	}
 
 	s.rows.Set(true)
-	if s.colnames == nil {
-		n := int64(C.sqlite3_column_count(s.ss))
-		s.colnames = make([]string, n)
-		s.coltypes = make([]string, n)
-		for i := range s.colnames {
-			s.colnames[i] = C.GoString(C.sqlite3_column_name(s.ss, C.int(i)))
-			s.coltypes[i] = strings.ToLower(C.GoString(C.sqlite3_column_decltype(s.ss, C.int(i))))
-		}
-	}
 	done := make(chan bool)
-	rows := &rows{s, done}
+	rows := &rows{s, nil, nil, done}
 
 	// context cancellation support
 	go func(db *C.sqlite3) {
@@ -497,6 +486,8 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 
 type rows struct {
 	s    *stmt
+	colnames []string
+	coltypes []string
 	done chan bool
 }
 
@@ -504,7 +495,17 @@ func (r *rows) Columns() []string {
 	if r.s == nil {
 		return nil
 	}
-	return r.s.colnames
+
+
+	if r.colnames == nil {
+		n := int64(C.sqlite3_column_count(r.s.ss))
+		r.colnames = make([]string, n)
+		for i := range r.colnames {
+			r.colnames[i] = C.GoString(C.sqlite3_column_name(r.s.ss, C.int(i)))
+		}
+	}
+
+	return r.colnames
 }
 
 func (r *rows) Next(dst []driver.Value) error {
@@ -523,6 +524,14 @@ func (r *rows) Next(dst []driver.Value) error {
 		}
 	}
 
+	if r.coltypes == nil {
+		n := int64(C.sqlite3_column_count(r.s.ss))
+		r.coltypes = make([]string, n)
+		for i := range r.coltypes {
+			r.coltypes[i] = strings.ToLower(C.GoString(C.sqlite3_column_decltype(r.s.ss, C.int(i))))
+		}
+	}
+
 	for i := range dst {
 		n := C.int(i)
 		switch ctype := C.sqlite3_column_type(r.s.ss, n); ctype {
@@ -531,7 +540,7 @@ func (r *rows) Next(dst []driver.Value) error {
 
 		case C.SQLITE_INTEGER:
 			val := int64(C.sqlite3_column_int64(r.s.ss, n))
-			switch r.s.coltypes[i] {
+			switch r.coltypes[i] {
 			case "timestamp", "datetime":
 				dst[i] = time.Unix(val, 0).UTC()
 			case "boolean":
@@ -558,7 +567,7 @@ func (r *rows) Next(dst []driver.Value) error {
 			c := C.sqlite3_column_bytes(r.s.ss, n)
 			s := C.GoStringN((*C.char)(unsafe.Pointer(C.sqlite3_column_text(r.s.ss, n))), c)
 
-			switch r.s.coltypes[i] {
+			switch r.coltypes[i] {
 			case "timestamp", "datetime":
 				dst[i] = time.Time{}
 				for _, f := range timeFormat {
@@ -580,8 +589,8 @@ func (r *rows) Close() error {
 		return errors.New("Close of closed Rows")
 	}
 	r.s.rows.Set(false)
-	r.s = nil
 	close(r.done)
+	r.s = nil
 	return nil
 }
 

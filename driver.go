@@ -1,5 +1,5 @@
 // Copyright 2010 The Go Authors,
-//           2018 Kayla Thompson
+//           2018-2019 Kayla Thompson
 // All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -7,10 +7,8 @@
 package sqlite
 
 /*
-#cgo linux LDFLAGS: -lsqlite3
-#cgo darwin LDFLAGS: -L/usr/local/opt/sqlite/lib -lsqlite3
-#cgo darwin CFLAGS: -I/usr/local/opt/sqlite/include
-
+extern size_t _GoStringLen(_GoString_ s);
+extern const char *_GoStringPtr(_GoString_ s);
 #include <sqlite3.h>
 #include <stdlib.h>
 

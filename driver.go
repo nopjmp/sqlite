@@ -22,8 +22,8 @@ static void registerBusyHandler(sqlite3 *db) {
 	sqlite3_busy_handler(db, (busy_callback)busyHandler, (void*)db);
 }
 
-static int _bind_text(sqlite3_stmt *stmt, int n, char *p, int np) {
-	return sqlite3_bind_text(stmt, n, p, np, SQLITE_TRANSIENT);
+static int _bind_text(sqlite3_stmt *stmt, int n, _GoString_ s) {
+	return sqlite3_bind_text(stmt, n, _GoStringPtr(s), _GoStringLen(s), SQLITE_TRANSIENT);
 }
 
 static int _bind_blob(sqlite3_stmt *stmt, int n, char *p, int np) {
@@ -382,13 +382,9 @@ func (s *stmt) bind(args []driver.NamedValue) error {
 			rv = C._bind_blob(s.ss, n, (*C.char)(unsafe.Pointer(p)), C.int(len(v)))
 		case time.Time:
 			str := v.UTC().Format(timeFormat[0])
-			cstr := C.CString(str)
-			rv = C._bind_text(s.ss, n, cstr, C.int(len(str)))
-			C.free(unsafe.Pointer(cstr))
+			rv = C._bind_text(s.ss, n, str)
 		case string:
-			cstr := C.CString(v)
-			rv = C._bind_text(s.ss, n, cstr, C.int(len(v)))
-			C.free(unsafe.Pointer(cstr))
+			rv = C._bind_text(s.ss, n, v)
 		}
 		if rv != C.SQLITE_OK {
 			return s.c.lastError()

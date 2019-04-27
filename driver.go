@@ -227,7 +227,7 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 
 	var ss *C.sqlite3_stmt
 	var ctail *C.char // used for Execer
-	rv := C.sqlite3_prepare_v2(c.db, querystr, C.int(len(query)+1), &ss, &ctail)
+	rv := C.sqlite3_prepare_v2(c.db, querystr, C.int(-1), &ss, &ctail)
 
 	if rv != C.SQLITE_OK {
 		return nil, c.lastError()

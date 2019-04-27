@@ -32,6 +32,16 @@ static int _bind_blob(sqlite3_stmt *stmt, int n, const void *p, int np) {
 		p = "";
 	return sqlite3_bind_blob(stmt, n, p, np, SQLITE_TRANSIENT);
 }
+
+static int _prepare_stmt(sqlite3 *db, _GoString_ s, sqlite3_stmt **stmt, const char **tail) {
+	const char *p = _GoStringPtr(s);
+	size_t len = _GoStringLen(s);
+	if (p == NULL)
+		p = "";
+	if (len != 0)
+		len += 1; // add the null-terminator
+	return sqlite3_prepare_v2(db, p, len, stmt, tail);
+}
 */
 import "C"
 
@@ -222,12 +232,9 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 		return nil, io.EOF
 	}
 
-	querystr := C.CString(query)
-	defer C.free(unsafe.Pointer(querystr))
-
 	var ss *C.sqlite3_stmt
 	var ctail *C.char // used for Execer
-	rv := C.sqlite3_prepare_v2(c.db, querystr, C.int(len(query)+1), &ss, &ctail)
+	rv := C._prepare_stmt(c.db, query, &ss, &ctail)
 
 	if rv != C.SQLITE_OK {
 		return nil, c.lastError()

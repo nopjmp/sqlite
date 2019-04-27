@@ -23,10 +23,15 @@ static void registerBusyHandler(sqlite3 *db) {
 }
 
 static int _bind_text(sqlite3_stmt *stmt, int n, _GoString_ s) {
-	return sqlite3_bind_text(stmt, n, _GoStringPtr(s), _GoStringLen(s), SQLITE_TRANSIENT);
+	const char *p = _GoStringPtr(s);
+	if (p == NULL)
+		p = "";
+	return sqlite3_bind_text(stmt, n, p, _GoStringLen(s), SQLITE_TRANSIENT);
 }
 
-static int _bind_blob(sqlite3_stmt *stmt, int n, char *p, int np) {
+static int _bind_blob(sqlite3_stmt *stmt, int n, const void *p, int np) {
+	if (p == NULL)
+		p = "";
 	return sqlite3_bind_blob(stmt, n, p, np, SQLITE_TRANSIENT);
 }
 */
@@ -381,11 +386,12 @@ func (s *stmt) bind(args []driver.NamedValue) error {
 		case float64:
 			rv = C.sqlite3_bind_double(s.ss, n, C.double(v))
 		case []byte:
-			var p *byte
-			if len(v) > 0 {
-				p = &v[0]
+			var p unsafe.Pointer
+			ln := len(v)
+			if ln > 0 {
+				p = unsafe.Pointer(&v[0])
 			}
-			rv = C._bind_blob(s.ss, n, (*C.char)(unsafe.Pointer(p)), C.int(len(v)))
+			rv = C._bind_blob(s.ss, n, p, C.int(ln))
 		case time.Time:
 			str := v.UTC().Format(timeFormat[0])
 			rv = C._bind_text(s.ss, n, str)

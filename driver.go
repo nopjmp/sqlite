@@ -223,12 +223,11 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	}
 
 	querystr := C.CString(query)
+	defer C.free(unsafe.Pointer(querystr))
 
 	var ss *C.sqlite3_stmt
 	var ctail *C.char // used for Execer
 	rv := C.sqlite3_prepare_v2(c.db, querystr, C.int(len(query)+1), &ss, &ctail)
-
-	C.free(unsafe.Pointer(querystr))
 
 	if rv != C.SQLITE_OK {
 		return nil, c.lastError()

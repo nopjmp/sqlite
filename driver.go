@@ -144,6 +144,15 @@ func lastError(db *C.sqlite3) error {
 	return ErrNum(rv)
 }
 
+func interrupt(ctx context.Context, db *C.sqlite3, done chan bool) {
+	select {
+	case <-done: // do nothing
+	case <-ctx.Done():
+		// TODO: we should provide support for running a function after the interrupt
+		C.sqlite3_interrupt(db)
+	}
+}
+
 func (c *conn) Ping() error {
 	if c.closed.IsSet() {
 		return errors.New("connection closed")
@@ -263,14 +272,11 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 
 	// context cancellation support
 	done := make(chan bool)
-	go func(db *C.sqlite3) {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			// TODO: we need to attempt to rollback here, if we haven't done COMMIT
-			C.sqlite3_interrupt(db)
-		}
-	}(c.db)
+
+	// TODO: we need to attempt to rollback here, if we haven't done COMMIT
+	if ctx.Done() != nil {
+		go interrupt(ctx, c.db, done)
+	}
 
 	return &tx{c, ctx, done}, nil
 }
@@ -419,14 +425,11 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 	}
 
 	// context cancellation support
-	done := make(chan bool)
-	go func(db *C.sqlite3) {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			C.sqlite3_interrupt(db)
-		}
-	}(s.c.db)
+	if ctx.Done() != nil {
+		done := make(chan bool)
+		defer close(done)
+		go interrupt(ctx, s.c.db, done)
+	}
 
 	rv := C.sqlite3_step(s.ss)
 	if rv != C.SQLITE_ROW && rv != C.SQLITE_OK && rv != C.SQLITE_DONE {
@@ -471,14 +474,9 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	rows := &rows{s, nil, nil, done}
 
 	// context cancellation support
-	go func(db *C.sqlite3) {
-		select {
-		case <-rows.done:
-		case <-ctx.Done():
-			C.sqlite3_interrupt(db)
-			rows.Close()
-		}
-	}(s.c.db)
+	if ctx.Done() != nil {
+		go interrupt(ctx, s.c.db, done)
+	}
 
 	return rows, nil
 }

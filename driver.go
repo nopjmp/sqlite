@@ -11,6 +11,7 @@ extern size_t _GoStringLen(_GoString_ s);
 extern const char *_GoStringPtr(_GoString_ s);
 #include <sqlite3.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 typedef int (*busy_callback)(void*,int);
 
@@ -31,6 +32,13 @@ static int _bind_blob(sqlite3_stmt *stmt, int n, const void *p, int np) {
 	if (p == NULL)
 		p = "";
 	return sqlite3_bind_blob(stmt, n, p, np, SQLITE_TRANSIENT);
+}
+
+static int _exec_step(sqlite3 *db, sqlite3_stmt *stmt, int64_t *rowid, int64_t *changes) {
+	int rv = sqlite3_step(stmt);
+	*rowid = sqlite3_last_insert_rowid(db);
+	*changes = sqlite3_changes(db);
+	return rv;
 }
 */
 import "C"
@@ -315,14 +323,14 @@ func (t *tx) Rollback() error {
 }
 
 type stmt struct {
-	c        *conn
-	ss       *C.sqlite3_stmt
-	tail     string
-	query    string
-	err      error
-	args     string
-	closed   atomicBool
-	rows     atomicBool
+	c      *conn
+	ss     *C.sqlite3_stmt
+	tail   string
+	query  string
+	err    error
+	args   string
+	closed atomicBool
+	rows   atomicBool
 }
 
 func (s *stmt) Close() error {
@@ -434,7 +442,8 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 		go interrupt(ctx, s.c.db, done)
 	}
 
-	rv := C.sqlite3_step(s.ss)
+	var rowid, changes C.int64_t
+	rv := C._exec_step(s.c.db, s.ss, &rowid, &changes)
 	if rv != C.SQLITE_ROW && rv != C.SQLITE_OK && rv != C.SQLITE_DONE {
 		err = s.c.lastError()
 		C.sqlite3_reset(s.ss)
@@ -442,9 +451,7 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 		return nil, err
 	}
 
-	id := int64(C.sqlite3_last_insert_rowid(s.c.db))
-	rows := int64(C.sqlite3_changes(s.c.db))
-	return &result{id, rows}, nil
+	return &result{int64(rowid), int64(changes)}, nil
 }
 
 func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
@@ -474,7 +481,7 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 
 	s.rows.Set(true)
 	done := make(chan bool)
-	rows := &rows{s, nil, nil, done}
+	rows := &rows{s, int64(C.sqlite3_column_count(s.ss)), nil, nil, done}
 
 	// context cancellation support
 	if ctx.Done() != nil {
@@ -485,10 +492,11 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 }
 
 type rows struct {
-	s    *stmt
+	s        *stmt
+	colcount int64
 	colnames []string
 	coltypes []string
-	done chan bool
+	done     chan bool
 }
 
 func (r *rows) Columns() []string {
@@ -496,10 +504,8 @@ func (r *rows) Columns() []string {
 		return nil
 	}
 
-
 	if r.colnames == nil {
-		n := int64(C.sqlite3_column_count(r.s.ss))
-		r.colnames = make([]string, n)
+		r.colnames = make([]string, r.colcount)
 		for i := range r.colnames {
 			r.colnames[i] = C.GoString(C.sqlite3_column_name(r.s.ss, C.int(i)))
 		}
@@ -517,6 +523,7 @@ func (r *rows) Next(dst []driver.Value) error {
 	if rv == C.SQLITE_DONE {
 		return io.EOF
 	}
+
 	if rv != C.SQLITE_ROW {
 		rv = C.sqlite3_reset(r.s.ss)
 		if rv != C.SQLITE_OK {
@@ -525,8 +532,7 @@ func (r *rows) Next(dst []driver.Value) error {
 	}
 
 	if r.coltypes == nil {
-		n := int64(C.sqlite3_column_count(r.s.ss))
-		r.coltypes = make([]string, n)
+		r.coltypes = make([]string, r.colcount)
 		for i := range r.coltypes {
 			r.coltypes[i] = strings.ToLower(C.GoString(C.sqlite3_column_decltype(r.s.ss, C.int(i))))
 		}
@@ -595,14 +601,14 @@ func (r *rows) Close() error {
 }
 
 type result struct {
-	id   int64
-	rows int64
+	rowid   int64
+	changes int64
 }
 
 func (r *result) LastInsertId() (int64, error) {
-	return r.id, nil
+	return r.rowid, nil
 }
 
 func (r *result) RowsAffected() (int64, error) {
-	return r.rows, nil
+	return r.changes, nil
 }

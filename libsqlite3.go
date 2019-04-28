@@ -7,10 +7,6 @@
 package sqlite
 
 /*
-#cgo linux LDFLAGS: -lsqlite3
-#cgo darwin LDFLAGS: -L/usr/local/opt/sqlite/lib -lsqlite3
-#cgo darwin CFLAGS: -I/usr/local/opt/sqlite/include
-#cgo openbsd CFLAGS: -I/usr/local/include
-#cgo openbsd LDFLAGS: -L/usr/local/lib -lsqlite3
+#cgo pkg-config: sqlite3
 */
 import "C"

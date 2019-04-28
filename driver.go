@@ -50,6 +50,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"time"
 	"unsafe"
@@ -136,8 +137,9 @@ func (impl) Open(dsn string) (driver.Conn, error) {
 
 	C.registerBusyHandler(db)
 
-	conn := &conn{db: db}
-	return conn, nil
+	c := &conn{db: db}
+	runtime.SetFinalizer(c, (*conn).Close)
+	return c, nil
 }
 
 type conn struct {
@@ -247,6 +249,7 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	}
 
 	s := &stmt{c: c, ss: ss, tail: tail, query: query}
+	runtime.SetFinalizer(s, (*stmt).Close)
 	return s, nil
 }
 
@@ -263,6 +266,7 @@ func (c *conn) Close() error {
 
 	rv := C.sqlite3_close(c.db)
 	c.db = nil
+	runtime.SetFinalizer(c, nil)
 	if rv != 0 {
 		return c.lastError()
 	}
@@ -342,6 +346,7 @@ func (s *stmt) Close() error {
 
 	rv := C.sqlite3_finalize(s.ss)
 	s.ss = nil
+	runtime.SetFinalizer(s, nil)
 	if rv != C.SQLITE_OK {
 		return ErrNum(rv)
 	}

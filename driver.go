@@ -545,10 +545,7 @@ func (r *rows) Next(dst []driver.Value) error {
 
 	for i := range dst {
 		n := C.int(i)
-		switch ctype := C.sqlite3_column_type(r.s.ss, n); ctype {
-		default:
-			return fmt.Errorf("unexpected sqlite3 column type %d", ctype)
-
+		switch C.sqlite3_column_type(r.s.ss, n) {
 		case C.SQLITE_INTEGER:
 			val := int64(C.sqlite3_column_int64(r.s.ss, n))
 			switch r.coltypes[i] {
@@ -569,10 +566,8 @@ func (r *rows) Next(dst []driver.Value) error {
 				dst[i] = nil
 				continue
 			}
-			c := int(C.sqlite3_column_bytes(r.s.ss, n))
-			s := make([]byte, c)
-			copy(s[:], (*[1 << 30]byte)(unsafe.Pointer(p))[:n])
-			dst[i] = s
+			c := C.sqlite3_column_bytes(r.s.ss, n)
+			dst[i] = C.GoBytes(p, c)
 
 		case C.SQLITE_TEXT:
 			c := C.sqlite3_column_bytes(r.s.ss, n)
@@ -588,7 +583,7 @@ func (r *rows) Next(dst []driver.Value) error {
 				}
 
 			default:
-				dst[i] = []byte(s)
+				dst[i] = s
 			}
 		}
 	}

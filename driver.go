@@ -145,7 +145,6 @@ func (impl) Open(dsn string) (driver.Conn, error) {
 type conn struct {
 	db     *C.sqlite3
 	closed atomicBool
-	tx     atomicBool
 }
 
 func lastError(db *C.sqlite3) error {
@@ -282,47 +281,27 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if _, err := c.ExecContext(ctx, "BEGIN", nil); err != nil {
 		return nil, err
 	}
-	c.tx.Set(true)
 
-	// context cancellation support
-	done := make(chan bool)
-
-	// TODO: we need to attempt to rollback here, if we haven't done COMMIT
-	if ctx.Done() != nil {
-		go interrupt(ctx, c.db, done)
-	}
-
-	return &tx{c, ctx, done}, nil
+	return &tx{c, ctx}, nil
 }
 
 type tx struct {
 	c    *conn
 	ctx  context.Context
-	done chan bool
 }
 
 func (t *tx) Commit() error {
-	if t.c == nil || !t.c.tx.IsSet() {
-		return errors.New("extra commit")
-	}
-	t.c.tx.Set(false)
 	_, err := t.c.ExecContext(t.ctx, "COMMIT", nil)
 	if err != nil && err == ErrBusy {
+		// if we are busy here, just rollback.
+		// this is to match database/sql behavior
 		t.c.ExecContext(t.ctx, "ROLLBACK", nil)
 	}
-	close(t.done)
-	t.c = nil
 	return err
 }
 
 func (t *tx) Rollback() error {
-	if t.c == nil || !t.c.tx.IsSet() {
-		return errors.New("extra rollback")
-	}
-	t.c.tx.Set(false)
 	_, err := t.c.ExecContext(t.ctx, "ROLLBACK", nil)
-	close(t.done)
-	t.c = nil
 	return err
 }
 

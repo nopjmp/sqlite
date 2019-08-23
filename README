@@ -1,1 +1,5 @@
 go get [-u] github.com/nopjmp/sqlite
+
+This driver does not support shared databases.
+
+I'm not using it in my applications, but contributions are appreciated.

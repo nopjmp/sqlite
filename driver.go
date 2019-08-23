@@ -313,7 +313,6 @@ type stmt struct {
 	err    error
 	args   string
 	closed atomicBool
-	rows   atomicBool
 }
 
 func (s *stmt) Close() error {
@@ -410,10 +409,6 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 		return nil, io.EOF
 	}
 
-	if s.rows.IsSet() {
-		return nil, errors.New("exec with active rows")
-	}
-
 	err := s.bind(args)
 	if err != nil {
 		return nil, err
@@ -454,16 +449,11 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 		return nil, io.EOF
 	}
 
-	if s.rows.IsSet() {
-		return nil, errors.New("query with active rows")
-	}
-
 	err := s.bind(args)
 	if err != nil {
 		return nil, err
 	}
 
-	s.rows.Set(true)
 	done := make(chan bool)
 	rows := &rows{s, int64(C.sqlite3_column_count(s.ss)), nil, nil, done}
 
@@ -569,14 +559,22 @@ func (r *rows) Next(dst []driver.Value) error {
 	return nil
 }
 
-func (r *rows) Close() error {
+func (r *rows) Close() (err error) {
+	err = nil
+
 	if r.s == nil {
-		return errors.New("Close of closed Rows")
+		err = errors.New("Close of closed Rows")
+		return
 	}
-	r.s.rows.Set(false)
 	close(r.done)
+
+	rv := C.sqlite3_reset(r.s.ss)
+	if (rv != C.SQLITE_OK) {
+		err = r.s.c.lastError()
+	}
+	
 	r.s = nil
-	return nil
+	return
 }
 
 type result struct {
